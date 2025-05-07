@@ -82,23 +82,8 @@ def update_movements():
         connection = sqlite3.connect("inventory.db")
         cursor = connection.cursor()
 
-        # Actualizar valores faltantes en la columna category
-        cursor.execute("UPDATE movements SET category = 'Electronics' WHERE category IS NULL;")
-
-        # Obtener el ID del proveedor predeterminado
-        cursor.execute("SELECT id FROM suppliers WHERE name = 'Default Supplier';")
-        default_supplier = cursor.fetchone()
-        
-        if default_supplier is None:
-            raise ValueError("El proveedor 'Default Supplier' no existe en la tabla suppliers.")
-
-        default_supplier_id = default_supplier[0]
-
-        # Actualizar valores faltantes en la columna supplier_id
-        cursor.execute("UPDATE movements SET supplier_id = ? WHERE supplier_id IS NULL;", (default_supplier_id,))
-
-        # Actualizar valores faltantes en la columna movement_type
-        cursor.execute("UPDATE movements SET movement_type = 'entry' WHERE movement_type IS NULL;")
+        # Actualizar valores faltantes en la columna type
+        cursor.execute("UPDATE movements SET type = 'entry' WHERE type IS NULL;")
 
         # Confirmar los cambios
         connection.commit()
@@ -106,22 +91,25 @@ def update_movements():
 
     except sqlite3.Error as e:
         print(f"Error en la base de datos: {e}")
-    except ValueError as ve:
-        print(f"Error: {ve}")
     finally:
         # Asegurarse de cerrar la conexión
         if connection:
             connection.close()
 
-# Ejecutar la función
-update_movements()
-
 def update_product_names():
-    """Rellena la columna 'product_name' en la tabla 'movements'."""
+    """Rellena la columna 'product_name' en la tabla 'movements', si existe."""
     connection = sqlite3.connect("inventory.db")
     cursor = connection.cursor()
 
-    # Suponiendo que tienes una tabla 'products' con 'id' y 'name'
+    # Verificar si la columna 'product_name' existe
+    cursor.execute("PRAGMA table_info(movements);")
+    columns = [row[1] for row in cursor.fetchall()]
+    if "product_name" not in columns:
+        print("La columna 'product_name' no existe en la tabla 'movements'.")
+        connection.close()
+        return
+
+    # Actualizar nombres de productos
     cursor.execute("""
     UPDATE movements
     SET product_name = (
@@ -136,81 +124,8 @@ def update_product_names():
     connection.close()
     print("Nombres de productos actualizados correctamente.")
 
-# Ejecutar la función
+# Ejecutar funciones necesarias
+connect()
+migrate()
+update_movements()
 update_product_names()
-
-import sqlite3
-
-def add_default_supplier():
-    """
-    Agrega un proveedor predeterminado si no existe en la tabla suppliers.
-    """
-    try:
-        # Conectar a la base de datos
-        connection = sqlite3.connect("inventory.db")
-        cursor = connection.cursor()
-
-        # Verificar si el proveedor predeterminado ya existe
-        cursor.execute("SELECT id FROM suppliers WHERE name = 'Default Supplier';")
-        supplier = cursor.fetchone()
-
-        if supplier is None:
-            # Insertar el proveedor predeterminado con un valor válido para contact
-            cursor.execute("""
-                INSERT INTO suppliers (name, contact) VALUES ('Default Supplier', 'No contact provided');
-            """)
-            connection.commit()
-            print("Proveedor predeterminado agregado correctamente.")
-        else:
-            print("El proveedor predeterminado ya existe.")
-
-    except sqlite3.Error as e:
-        print(f"Error en la base de datos: {e}")
-    finally:
-        # Asegurarse de cerrar la conexión
-        if connection:
-            connection.close()
-
-# Ejecutar la función
-add_default_supplier()
-
-def update_movements_with_existing_supplier():
-    """
-    Asigna un proveedor existente a los movimientos con supplier_id NULL.
-    """
-    try:
-        # Conectar a la base de datos
-        connection = sqlite3.connect("inventory.db")
-        cursor = connection.cursor()
-
-        # Verificar si existe el proveedor deseado
-        cursor.execute("SELECT id FROM suppliers WHERE name = 'Electronics Inc';")
-        supplier = cursor.fetchone()
-
-        if supplier is None:
-            raise ValueError("El proveedor 'Electronics Inc' no existe en la tabla suppliers.")
-
-        supplier_id = supplier[0]
-
-        # Actualizar movimientos con supplier_id NULL
-        cursor.execute("""
-            UPDATE movements
-            SET supplier_id = ?
-            WHERE supplier_id IS NULL;
-        """, (supplier_id,))
-
-        # Confirmar los cambios
-        connection.commit()
-        print("Movimientos actualizados correctamente.")
-
-    except sqlite3.Error as e:
-        print(f"Error en la base de datos: {e}")
-    except ValueError as ve:
-        print(f"Error: {ve}")
-    finally:
-        # Asegurarse de cerrar la conexión
-        if connection:
-            connection.close()
-
-# Ejecutar la función
-update_movements_with_existing_supplier()

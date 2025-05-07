@@ -1,13 +1,12 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-import matplotlib.pyplot as plt
-from datetime import datetime  # Para manejar fechas
+from datetime import datetime
+import sqlite3
 from inventory.inventory_manager import (
     add_product,
     list_products,
     register_stock_exit,
     get_low_stock_products,
-    get_top_selling_products,
     get_movements,
     delete_product_and_related_data,
     add_supplier,
@@ -15,85 +14,169 @@ from inventory.inventory_manager import (
     delete_supplier,
     update_supplier
 )
+import matplotlib.pyplot as plt
 
 class InventoryApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Sistema de Control de Inventarios")
+
+        # Inicializar atributos
         self.low_stock_threshold = 10  # Umbral inicial para notificaciones de bajo stock
+
+        # Habilitar pantalla completa
+        self.root.attributes("-fullscreen", True)
+
+        # Salir del modo pantalla completa con la tecla Esc
+        self.root.bind("<Escape>", lambda event: self.root.attributes("-fullscreen", False))
+
+        # Configurar el tema de ttk
+        style = ttk.Style()
+        style.theme_use("clam")  # Usa el tema 'clam' para un aspecto moderno
+        style.configure("TButton", font=("Arial", 16), padding=10)  # Botones más grandes
+        style.configure("TLabel", font=("Arial", 16))  # Etiquetas más grandes
+        style.configure("Header.TLabel", font=("Arial", 24, "bold"))  # Título más grande
+
+        # Crear un marco principal para contener el menú
+        self.main_frame = tk.Frame(self.root, bg="#f7f7f7", padx=20, pady=20)
+        self.main_frame.pack(fill="both", expand=True)
+
+        # Crear el menú principal
+        self.create_main_menu()
 
     def create_main_menu(self):
         """Crea el menú principal con botones para cada operación."""
-        frame = tk.Frame(self.root, padx=20, pady=20)
-        frame.pack()
+        # Limpiar cualquier contenido existente en el marco principal
+        for widget in self.main_frame.winfo_children():
+            widget.destroy()
 
-        tk.Label(frame, text="Sistema de Control de Inventarios", font=("Arial", 16)).pack(pady=10)
+        # Título del menú principal
+        ttk.Label(
+            self.main_frame,
+            text="Sistema de Control de Inventarios",
+            style="Header.TLabel",
+            anchor="center"
+        ).grid(row=0, column=0, columnspan=2, pady=20)
 
         # Mostrar notificaciones de bajo stock
-        self.show_low_stock_notification(frame)
+        self.show_low_stock_notification(self.main_frame)
 
-        ttk.Button(frame, text="Agregar Producto", command=self.add_product_window, width=20).pack(pady=5)
-        ttk.Button(frame, text="Eliminar Producto", command=self.delete_product_window, width=20).pack(pady=5)
-        ttk.Button(frame, text="Listar Inventario", command=self.list_inventory_window, width=20).pack(pady=5)
-        ttk.Button(frame, text="Registrar Salida de Stock", command=self.register_exit_window, width=20).pack(pady=5)
-        ttk.Button(frame, text="Gestionar Proveedores", command=self.manage_suppliers_window, width=20).pack(pady=5)
-        ttk.Button(frame, text="Historial de Movimientos", command=self.show_movements_window, width=20).pack(pady=5)
-        ttk.Button(frame, text="Configurar Umbral Bajo Stock", command=self.configure_low_stock_threshold, width=25).pack(pady=5)
-        ttk.Button(frame, text="Reportes y Estadísticas", command=self.generate_reports_window, width=20).pack(pady=5)
-        ttk.Button(frame, text="Salir", command=self.root.quit, width=20).pack(pady=10)
-     
-def list_inventory_window(self):
-    """Ventana para listar el inventario."""
-    window = tk.Toplevel(self.root)
-    window.title("Inventario")
+        # Lista de acciones con sus comandos correspondientes
+        actions = [
+            ("📦 Agregar Producto", self.add_product_window),
+            ("🗑️ Eliminar Producto", self.delete_product_window),
+            ("📋 Listar Inventario", self.list_inventory_window),
+            ("➖ Registrar Salida de Stock", self.register_exit_window),
+            ("📜 Historial de Movimientos", self.simple_movements_window),
+            ("⚙️ Configurar Umbral Bajo Stock", self.configure_low_stock_threshold),
+            ("📊 Reportes y Estadísticas", self.generate_reports_window),
+            ("❌ Salir", self.root.quit)
+        ]
 
-    # Frame para la lista de productos
-    frame = tk.Frame(window, padx=20, pady=20)
-    frame.pack()
-
-    tk.Label(frame, text="Inventario de Productos", font=("Arial", 16)).pack(pady=10)
-
-    # Crear la tabla de inventario
-    inventory_list = tk.Text(frame, width=50, height=20)
-    inventory_list.pack(pady=10)
-
-    def load_inventory():
-        """Carga el inventario desde la base de datos."""
-        inventory_list.delete('1.0', tk.END)  # Limpia la lista
-        connection = sqlite3.connect("inventory.db")
-        cursor = connection.cursor()
-
-        cursor.execute("SELECT id, name, stock FROM products;")
-        products = cursor.fetchall()
-        connection.close()
-
-        if products:
-            for product in products:
-                inventory_list.insert(tk.END, f"ID: {product[0]} | Nombre: {product[1]} | Stock: {product[2]}\n")
-        else:
-            inventory_list.insert(tk.END, "No hay productos en el inventario.\n")
-
-    # Cargar el inventario al abrir la ventana
-    load_inventory()
-
-    ttk.Button(frame, text="Refrescar", command=load_inventory).pack(pady=5)
-    ttk.Button(frame, text="Cerrar", command=window.destroy).pack(pady=5)
-
+        # Mostrar botones en un grid
+        for i, (text, command) in enumerate(actions):
+            ttk.Button(
+                self.main_frame,
+                text=text,
+                command=command,
+                width=30
+            ).grid(row=i + 2, column=0, columnspan=2, pady=10, padx=20)
 
     def show_low_stock_notification(self, parent_frame):
-        """Muestra una notificación si hay productos con bajo stock."""
+        """Show a notification if there are low stock items."""
         low_stock_products = get_low_stock_products(self.low_stock_threshold)
-        tk.Label(parent_frame, text=f"⚙️ Umbral de Bajo Stock: {self.low_stock_threshold}", fg="blue").pack(pady=5)
+
+        # Mostrar el umbral actual
+        ttk.Label(
+            parent_frame,
+            text=f"⚙️ Umbral de Bajo Stock: {self.low_stock_threshold}",
+            style="TLabel",
+            anchor="center"
+        ).grid(row=1, column=0, columnspan=2, pady=10)
+
         if low_stock_products:
-            tk.Label(parent_frame, text="⚠️ Productos con bajo stock:", fg="red").pack(pady=5)
-            for product in low_stock_products:
+            # Mostrar notificación de productos con bajo stock
+            ttk.Label(
+                parent_frame,
+                text="⚠️ Productos con bajo stock:",
+                style="TLabel",
+                foreground="red",
+                anchor="center"
+            ).grid(row=2, column=0, columnspan=2, pady=10)
+
+            # Agregar cada producto con bajo stock
+            for i, product in enumerate(low_stock_products, start=3):
                 product_label = f"- {product[1]} (Stock: {product[2]})"
-                tk.Label(parent_frame, text=product_label, fg="red").pack(pady=2)
+                ttk.Label(
+                    parent_frame,
+                    text=product_label,
+                    style="TLabel",
+                    anchor="w"
+                ).grid(row=i, column=0, columnspan=2, pady=2, sticky="w")
         else:
-            tk.Label(parent_frame, text="✅ Todo el inventario está en buen estado.", fg="green").pack(pady=5)
+            # Mostrar notificación de que todo está bien
+            ttk.Label(
+                parent_frame,
+                text="✅ Todo el inventario está en buen estado.",
+                style="TLabel",
+                foreground="green",
+                anchor="center"
+            ).grid(row=2, column=0, columnspan=2, pady=10)
+
+    def add_product_window(self):
+        """Ventana para agregar un nuevo producto."""
+        window = tk.Toplevel(self.root)
+        window.title("Agregar Producto")
+        window.configure(bg="#f7f7f7")
+
+        ttk.Label(window, text="Nombre del Producto:", style="TLabel").grid(row=0, column=0, padx=10, pady=5)
+        product_name_entry = ttk.Entry(window, width=30)
+        product_name_entry.grid(row=0, column=1, padx=10, pady=5)
+
+        ttk.Label(window, text="Stock Inicial:", style="TLabel").grid(row=1, column=0, padx=10, pady=5)
+        stock_entry = ttk.Entry(window, width=30)
+        stock_entry.grid(row=1, column=1, padx=10, pady=5)
+
+        def save_product():
+            """Guardar el producto en la base de datos y registrar un movimiento."""
+            product_name = product_name_entry.get()
+            try:
+                stock = int(stock_entry.get())
+                if stock < 0:
+                    raise ValueError("El stock inicial no puede ser negativo.")
+            except ValueError as e:
+                messagebox.showerror("Error", f"Stock inválido: {e}")
+                return
+
+            if not product_name:
+                messagebox.showerror("Error", "El nombre del producto no puede estar vacío.")
+                return
+
+            # Agregar el producto a la base de datos
+            product_id = add_product(product_name, stock)
+
+            # Registrar un movimiento 'entry' automáticamente
+            self.register_movement(product_id, stock, "entry")
+
+            # Mostrar éxito
+            messagebox.showinfo("Éxito", f"Producto '{product_name}' agregado con éxito.")
+            window.destroy()
+
+        ttk.Button(window, text="Guardar", command=save_product).grid(row=2, columnspan=2, pady=10)
+
+    def register_movement(self, product_id, quantity, movement_type):
+        """Registrar un movimiento en la base de datos."""
+        connection = sqlite3.connect("inventory.db")
+        cursor = connection.cursor()
+        cursor.execute("""
+            INSERT INTO movements (product_id, quantity, type, date)
+            VALUES (?, ?, ?, ?)
+        """, (product_id, quantity, movement_type, datetime.now()))
+        connection.commit()
+        connection.close()
 
     def configure_low_stock_threshold(self):
-        """Permite al usuario configurar el umbral de stock bajo."""
+        """Allow the user to configure the low stock threshold."""
         window = tk.Toplevel(self.root)
         window.title("Configurar Umbral de Stock Bajo")
 
@@ -120,13 +203,55 @@ def list_inventory_window(self):
         ttk.Button(window, text="Guardar", command=save_threshold).grid(row=2, columnspan=2, pady=10)
 
     def refresh_main_menu(self):
-        """Refresca el menú principal para actualizar las notificaciones."""
+        """Refresh the main menu to update notifications."""
         for widget in self.root.winfo_children():
             widget.destroy()
         self.create_main_menu()
 
+    def simple_movements_window(self):
+        """Ventana para mostrar el historial de movimientos en una tabla simple."""
+        window = tk.Toplevel(self.root)
+        window.title("Historial de Movimientos")
+
+        # Tabla para mostrar los movimientos
+        tree = ttk.Treeview(window, columns=("ID", "Producto", "Cantidad", "Tipo", "Fecha"), show="headings")
+        tree.heading("ID", text="ID")
+        tree.heading("Producto", text="Producto")
+        tree.heading("Cantidad", text="Cantidad")
+        tree.heading("Tipo", text="Tipo")
+        tree.heading("Fecha", text="Fecha")
+        tree.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Botón para cerrar la ventana
+        ttk.Button(window, text="Cerrar", command=window.destroy).pack(pady=10)
+
+        # Cargar movimientos desde la base de datos
+        self.load_all_movements(tree)
+
+    def load_all_movements(self, tree):
+        """Carga todos los movimientos desde la base de datos y los muestra en la tabla."""
+        connection = sqlite3.connect("inventory.db")
+        cursor = connection.cursor()
+
+        # Consulta para obtener los movimientos
+        query = """
+            SELECT movements.id, products.name, movements.quantity, movements.type, movements.date
+            FROM movements
+            JOIN products ON movements.product_id = products.id
+        """
+        cursor.execute(query)
+        movements = cursor.fetchall()
+        connection.close()
+
+        # Limpiar la tabla antes de agregar nuevos datos
+        for row in tree.get_children():
+            tree.delete(row)
+
+        # Agregar los movimientos a la tabla
+        for movement in movements:
+            tree.insert("", "end", values=movement)
     def add_product_window(self):
-        """Ventana para agregar un nuevo producto."""
+        """Window to add a new product."""
         window = tk.Toplevel(self.root)
         window.title("Agregar Producto")
 
@@ -140,11 +265,7 @@ def list_inventory_window(self):
 
         tk.Label(window, text="Categoría:").grid(row=2, column=0, padx=10, pady=5)
         category_entry = tk.Entry(window, width=30)
-        category_entry.grid(row=2, column=1, padx=10, pady=5),
-
-        
-    
-    
+        category_entry.grid(row=2, column=1, padx=10, pady=5)
 
         def save_product():
             name = name_entry.get()
@@ -161,36 +282,72 @@ def list_inventory_window(self):
                 window.destroy()
             except ValueError:
                 messagebox.showerror("Error", "El stock debe ser un número entero.")
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo agregar el producto: {e}")
 
         ttk.Button(window, text="Guardar", command=save_product).grid(row=3, columnspan=2, pady=10)
 
+    def delete_product_window(self):
+        """Window to delete a product."""
+        window = tk.Toplevel(self.root)
+        window.title("Eliminar Producto")
+
+        tk.Label(window, text="ID del Producto a eliminar:").grid(row=0, column=0, padx=10, pady=5)
+        product_id_entry = tk.Entry(window, width=30)
+        product_id_entry.grid(row=0, column=1, padx=10, pady=5)
+
+        def delete_product():
+            try:
+                product_id = int(product_id_entry.get())
+                delete_product_and_related_data(product_id)
+                messagebox.showinfo("Éxito", f"Producto con ID {product_id} eliminado correctamente.")
+                window.destroy()
+            except ValueError:
+                messagebox.showerror("Error", "El ID debe ser un número entero.")
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo eliminar el producto: {e}")
+
+        ttk.Button(window, text="Eliminar", command=delete_product).grid(row=1, columnspan=2, pady=10)
+
     def list_inventory_window(self):
-        """Ventana para listar el inventario."""
+        """Window to list inventory."""
         window = tk.Toplevel(self.root)
         window.title("Inventario")
 
-        # Obtener los productos desde la base de datos
-        products = list_products()
+        # Frame for the list of products
+        frame = tk.Frame(window, padx=20, pady=20)
+        frame.pack()
 
-        # Crear la tabla para mostrar los productos
-        tree = ttk.Treeview(window, columns=("ID", "Nombre", "Stock", "Categoría"), show="headings")
-        tree.heading("ID", text="ID")
-        tree.heading("Nombre", text="Nombre")
-        tree.heading("Stock", text="Stock")
-        tree.heading("Categoría", text="Categoría")
-        tree.pack(fill="both", expand=True)
+        tk.Label(frame, text="Inventario de Productos", font=("Arial", 16)).pack(pady=10)
 
-        # Insertar los productos en la tabla
-        for product in products:
-            tree.insert("", "end", values=product)
+        # Create the inventory list textbox
+        inventory_list = tk.Text(frame, width=50, height=20)
+        inventory_list.pack(pady=10)
 
-        # Botón para cerrar la ventana
-        ttk.Button(window, text="Cerrar", command=window.destroy).pack(pady=10)
+        def load_inventory():
+            """Load inventory from the database."""
+            inventory_list.delete('1.0', tk.END)  # Clear the list
+            connection = sqlite3.connect("inventory.db")
+            cursor = connection.cursor()
 
-    
+            cursor.execute("SELECT id, name, stock FROM products;")
+            products = cursor.fetchall()
+            connection.close()
+
+            if products:
+                for product in products:
+                    inventory_list.insert(tk.END, f"ID: {product[0]} | Nombre: {product[1]} | Stock: {product[2]}\n")
+            else:
+                inventory_list.insert(tk.END, "No hay productos en el inventario.\n")
+
+        # Load the inventory upon opening the window
+        load_inventory()
+
+        ttk.Button(frame, text="Refrescar", command=load_inventory).pack(pady=5)
+        ttk.Button(frame, text="Cerrar", command=window.destroy).pack(pady=5)
 
     def register_exit_window(self):
-        """Ventana para registrar salida de stock."""
+        """Window to register stock exit."""
         window = tk.Toplevel(self.root)
         window.title("Registrar Salida de Stock")
 
@@ -219,11 +376,11 @@ def list_inventory_window(self):
         ttk.Button(window, text="Registrar", command=save_exit).grid(row=2, columnspan=2, pady=10)
 
     def manage_suppliers_window(self):
-        """Ventana para gestionar proveedores."""
+        """Window to manage suppliers."""
         window = tk.Toplevel(self.root)
         window.title("Gestionar Proveedores")
 
-        # Tabla para mostrar los proveedores
+        # Table to show suppliers
         suppliers = list_suppliers()
 
         tree = ttk.Treeview(window, columns=("ID", "Nombre", "Contacto"), show="headings")
@@ -236,7 +393,7 @@ def list_inventory_window(self):
             tree.insert("", "end", values=supplier)
 
         def add_supplier_window():
-            """Ventana para añadir un nuevo proveedor."""
+            """Window to add a new supplier."""
             supplier_window = tk.Toplevel(window)
             supplier_window.title("Añadir Proveedor")
 
@@ -266,16 +423,16 @@ def list_inventory_window(self):
             ttk.Button(supplier_window, text="Guardar", command=save_supplier).grid(row=2, columnspan=2, pady=10)
 
         def delete_selected_supplier():
-            """Elimina el proveedor seleccionado."""
+            """Delete the selected supplier."""
             selected_item = tree.selection()
             if not selected_item:
                 messagebox.showwarning("Advertencia", "Por favor, selecciona un proveedor para eliminar.")
                 return
 
-            # Obtener el ID del proveedor seleccionado
+            # Get the ID of the selected supplier
             supplier_id = tree.item(selected_item[0])["values"][0]
 
-            # Confirmar antes de eliminar
+            # Confirm before deleting
             confirm = messagebox.askyesno("Confirmar Eliminación", f"¿Estás seguro de que deseas eliminar el proveedor con ID {supplier_id}?")
             if confirm:
                 try:
@@ -288,14 +445,22 @@ def list_inventory_window(self):
         ttk.Button(window, text="Añadir Proveedor", command=add_supplier_window).pack(side="left", padx=5, pady=10)
         ttk.Button(window, text="Eliminar Proveedor", command=delete_selected_supplier).pack(side="left", padx=5, pady=10)
         ttk.Button(window, text="Cerrar", command=window.destroy).pack(side="right", padx=5, pady=10)
-        
-         
+
+    def refresh_suppliers_table(self, tree):
+        """Refresh the suppliers table."""
+        for row in tree.get_children():
+            tree.delete(row)
+
+        suppliers = list_suppliers()
+        for supplier in suppliers:
+            tree.insert("", "end", values=supplier)
+
     def show_movements_window(self):
-        """Ventana mejorada para mostrar el historial de movimientos con filtros avanzados."""
+        """Enhanced window to show movements history with advanced filters."""
         window = tk.Toplevel(self.root)
         window.title("Historial de Movimientos")
 
-        # Etiquetas y campos de entrada para los filtros
+        # Labels and entry fields for filters
         tk.Label(window, text="ID Producto:").grid(row=0, column=0, padx=10, pady=5)
         product_id_entry = tk.Entry(window, width=20)
         product_id_entry.grid(row=0, column=1, padx=10, pady=5)
@@ -312,15 +477,15 @@ def list_inventory_window(self):
         movement_type_combo = ttk.Combobox(window, values=["", "entry", "exit"], width=18)
         movement_type_combo.grid(row=3, column=1, padx=10, pady=5)
 
-        tk.Label(window, text="Fecha Inicio:").grid(row=4, column=0, padx=10, pady=5)
+        tk.Label(window, text="Fecha Inicio (YYYY-MM-DD):").grid(row=4, column=0, padx=10, pady=5)
         start_date_entry = tk.Entry(window, width=20)
         start_date_entry.grid(row=4, column=1, padx=10, pady=5)
 
-        tk.Label(window, text="Fecha Fin:").grid(row=5, column=0, padx=10, pady=5)
+        tk.Label(window, text="Fecha Fin (YYYY-MM-DD):").grid(row=5, column=0, padx=10, pady=5)
         end_date_entry = tk.Entry(window, width=20)
         end_date_entry.grid(row=5, column=1, padx=10, pady=5)
 
-        # Tabla para mostrar movimientos
+        # Table to show movements
         tree = ttk.Treeview(window, columns=("ID", "Producto", "Cantidad", "Categoría", "Proveedor", "Tipo", "Fecha"), show="headings")
         tree.heading("ID", text="ID")
         tree.heading("Producto", text="Producto")
@@ -331,69 +496,49 @@ def list_inventory_window(self):
         tree.heading("Fecha", text="Fecha")
         tree.grid(row=7, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
 
-        # Botón para aplicar filtros
+        # Button to apply filters
         ttk.Button(
             window,
             text="Filtrar",
             command=lambda: self.load_movements(tree, product_id_entry, category_entry, supplier_entry, movement_type_combo, start_date_entry, end_date_entry)
         ).grid(row=6, column=0, columnspan=2, pady=10)
 
-    def list_inventory_window(self):
-     """Ventana para listar el inventario."""
-    window = tk.Toplevel(self.root)
-    window.title("Inventario")
-
-    # Frame para la lista de productos
-    frame = tk.Frame(window, padx=20, pady=20)
-    frame.pack()
-
-    tk.Label(frame, text="Inventario de Productos", font=("Arial", 16)).pack(pady=10)
-
-    # Crear la tabla de inventario
-    inventory_list = tk.Text(frame, width=50, height=20)
-    inventory_list.pack(pady=10)
-
-    def load_inventory():
-        """Carga el inventario desde la base de datos."""
-        inventory_list.delete('1.0', tk.END)  # Limpia la lista
-        connection = sqlite3.connect("inventory.db")
-        cursor = connection.cursor()
-
-        cursor.execute("SELECT id, name, stock FROM products;")
-        products = cursor.fetchall()
-        connection.close()
-
-        if products:
-            for product in products:
-                inventory_list.insert(tk.END, f"ID: {product[0]} | Nombre: {product[1]} | Stock: {product[2]}\n")
-        else:
-            inventory_list.insert(tk.END, "No hay productos en el inventario.\n")
-
-    # Cargar el inventario al abrir la ventana
-    load_inventory()
-
-    ttk.Button(frame, text="Refrescar", command=load_inventory).pack(pady=5)
-    ttk.Button(frame, text="Cerrar", command=window.destroy).pack(pady=5)
-
     def load_movements(self, tree, product_id_entry, category_entry, supplier_entry, movement_type_combo, start_date_entry, end_date_entry):
-        """Filtra y carga los movimientos en la tabla."""
-        # Obtener los valores de los filtros
+        """Filter and load movements into the table."""
+        # Get values from the filters
         product_id = product_id_entry.get()
         category = category_entry.get()
         supplier = supplier_entry.get()
-        movement_type = movement_type_combo.get()  # Puede ser "entry" o "exit"
+        movement_type = movement_type_combo.get()
         start_date = start_date_entry.get()
         end_date = end_date_entry.get()
 
-        # Validar y preparar los valores para la consulta
-        product_id = int(product_id) if product_id else None
+        # Validate and prepare values for the query
+        try:
+            product_id = int(product_id) if product_id else None
+        except ValueError:
+            messagebox.showerror("Error", "ID Producto debe ser un número entero.")
+            return
         category = category if category else None
         supplier = supplier if supplier else None
         movement_type = movement_type if movement_type else None
-        start_date = start_date if start_date else None
-        end_date = end_date if end_date else None
 
-        # Llamar a la función para obtener movimientos desde el sistema
+        # Validate dates
+        date_format = "%Y-%m-%d"
+        try:
+            if start_date:
+                datetime.strptime(start_date, date_format)
+            else:
+                start_date = None
+            if end_date:
+                datetime.strptime(end_date, date_format)
+            else:
+                end_date = None
+        except ValueError:
+            messagebox.showerror("Error", "Formato de fecha inválido, use YYYY-MM-DD.")
+            return
+
+        # Get filtered movements
         movements = get_movements(
             product_id=product_id,
             category=category,
@@ -403,40 +548,34 @@ def list_inventory_window(self):
             end_date=end_date
         )
 
-        # Limpiar la tabla antes de cargar nuevos datos
+        # Clear the table before showing new data
         for row in tree.get_children():
             tree.delete(row)
 
-        # Mostrar movimientos en la tabla
         if movements:
             for movement in movements:
-                # Desempaquetar los valores del movimiento
-                id, product_name, quantity, category, supplier_name, movement_type, date = movement
-                # Insertar los valores en la tabla
-                tree.insert("", "end", values=(id, product_name, quantity, category, supplier_name, movement_type, date))
+                id_, product_name, quantity, category_, supplier_name, movement_type_, date_ = movement
+                tree.insert("", "end", values=(id_, product_name, quantity, category_, supplier_name, movement_type_, date_))
         else:
-            # Mostrar un mensaje si no hay resultados
-            messagebox.showinfo("Sin Resultados", "No se encontraron movimientos con los filtros seleccionados.")  
-            
+            messagebox.showinfo("Sin Resultados", "No se encontraron movimientos con los filtros seleccionados.")
+
     def generate_reports_window(self):
-        """Ventana para generar reportes y estadísticas."""
+        """Window to generate reports and statistics."""
         window = tk.Toplevel(self.root)
         window.title("Reportes y Estadísticas")
 
         tk.Label(window, text="Selecciona el tipo de reporte:", font=("Arial", 12)).pack(pady=10)
 
         def show_top_selling_products():
-            """Generar gráfico de los productos más vendidos."""
-            data = get_top_selling_products()  # Obtiene los productos más vendidos
+            """Generate a graph of the top-selling products."""
+            data = get_top_selling_products()
             if not data:
                 messagebox.showinfo("Sin Datos", "No hay datos suficientes para generar el reporte.")
                 return
 
-            # Separar nombres y cantidades
-            products = [item[0] for item in data]  # Nombres de productos
-            quantities = [item[1] for item in data]  # Cantidades vendidas
+            products = [item[0] for item in data]
+            quantities = [item[1] for item in data]
 
-            # Crear gráfico
             plt.figure(figsize=(8, 5))
             plt.bar(products, quantities, color='blue')
             plt.title("Productos Más Vendidos")
@@ -447,22 +586,14 @@ def list_inventory_window(self):
             plt.show()
 
         ttk.Button(window, text="Productos Más Vendidos", command=show_top_selling_products).pack(pady=10)
+        ttk.Button(window, text="Cerrar", command=window.destroy).pack(pady=10)
 
-        ttk.Button(window, text="Cerrar", command=window.destroy).pack(pady=10)    
-     
-
-    def refresh_suppliers_table(self, tree):
-        """Refresca la tabla de proveedores."""
-        for row in tree.get_children():
-            tree.delete(row)
-
-        suppliers = list_suppliers()
-        for supplier in suppliers:
-            tree.insert("", "end", values=supplier)
-
-    # Los demás métodos permanecen igual...
-
+        
     
-    
-    
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = InventoryApp(root)
+    root.mainloop()
 
