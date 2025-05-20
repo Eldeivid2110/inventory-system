@@ -108,8 +108,7 @@ def verify_user(username, password):
     """Verifica si el usuario y contraseña son correctos."""
     conn = sqlite3.connect("inventory.db")
     cursor = conn.cursor()
-    password_hash = hashlib.sha256(password.encode()).hexdigest()
-    cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password_hash))
+    cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
     user = cursor.fetchone()
     conn.close()
     return user is not None
