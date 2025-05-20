@@ -1,4 +1,5 @@
 import sqlite3
+import hashlib
 
 def connect():
     """Conecta a la base de datos y crea las tablas si no existen."""
@@ -15,6 +16,15 @@ def connect():
         )
     """)
 
+    # Crear tabla de usuarios
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
+        )
+    """)
+
     # Crear tabla de movimientos
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS movements (
@@ -23,6 +33,7 @@ def connect():
             quantity INTEGER NOT NULL,
             type TEXT NOT NULL, -- 'entry' o 'exit'
             date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            movement_type TEXT DEFAULT 'entry',
             FOREIGN KEY (product_id) REFERENCES products (id)
         )
     """)
@@ -43,12 +54,21 @@ def migrate():
     cursor.execute("PRAGMA table_info(products)")
     columns = [column[1] for column in cursor.fetchall()]
     if "category" not in columns:
-        # Agregar la columna 'category' si no existe
         try:
             cursor.execute("ALTER TABLE products ADD COLUMN category TEXT DEFAULT 'General'")
             print("Columna 'category' añadida a la tabla 'products'.")
         except sqlite3.OperationalError as e:
             print(f"Error al añadir la columna 'category': {e}")
+
+    # Verificar si la columna 'movement_type' existe en la tabla 'movements'
+    cursor.execute("PRAGMA table_info(movements)")
+    columns = [column[1] for column in cursor.fetchall()]
+    if "movement_type" not in columns:
+        try:
+            cursor.execute("ALTER TABLE movements ADD COLUMN movement_type TEXT DEFAULT 'entry'")
+            print("Columna 'movement_type' añadida a la tabla 'movements'.")
+        except sqlite3.OperationalError as e:
+            print(f"Error al añadir la columna 'movement_type': {e}")
 
     conn.commit()
     conn.close()
@@ -57,75 +77,76 @@ def check_and_add_column(db_path, table_name, column_name, column_definition):
     """Verifica si la columna existe y, si no, la agrega."""
     connection = sqlite3.connect(db_path)
     cursor = connection.cursor()
-
-    # Obtener las columnas existentes de la tabla
     cursor.execute(f"PRAGMA table_info({table_name});")
     columns = [row[1] for row in cursor.fetchall()]
-
-    # Si la columna no existe, agregarla
     if column_name not in columns:
         cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition};")
         print(f"Columna '{column_name}' agregada a la tabla '{table_name}'.")
-
     connection.commit()
     connection.close()
-
-# Llamar a la función para agregar la columna 'movement_type'
-check_and_add_column("inventory.db", "movements", "movement_type", "TEXT")
 
 def update_movements():
     """
     Actualiza datos faltantes en la tabla movements.
     """
     try:
-        # Conectar a la base de datos
         connection = sqlite3.connect("inventory.db")
         cursor = connection.cursor()
-
         # Actualizar valores faltantes en la columna type
         cursor.execute("UPDATE movements SET type = 'entry' WHERE type IS NULL;")
-
-        # Confirmar los cambios
+        # Actualizar valores faltantes en la columna movement_type
+        cursor.execute("UPDATE movements SET movement_type = 'entry' WHERE movement_type IS NULL;")
         connection.commit()
         print("Datos actualizados correctamente.")
-
     except sqlite3.Error as e:
         print(f"Error en la base de datos: {e}")
     finally:
-        # Asegurarse de cerrar la conexión
         if connection:
             connection.close()
 
-def update_product_names():
-    """Rellena la columna 'product_name' en la tabla 'movements', si existe."""
-    connection = sqlite3.connect("inventory.db")
-    cursor = connection.cursor()
+def verify_user(username, password):
+    """Verifica si el usuario y contraseña son correctos."""
+    conn = sqlite3.connect("inventory.db")
+    cursor = conn.cursor()
+    password_hash = hashlib.sha256(password.encode()).hexdigest()
+    cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password_hash))
+    user = cursor.fetchone()
+    conn.close()
+    return user is not None
 
-    # Verificar si la columna 'product_name' existe
-    cursor.execute("PRAGMA table_info(movements);")
-    columns = [row[1] for row in cursor.fetchall()]
-    if "product_name" not in columns:
-        print("La columna 'product_name' no existe en la tabla 'movements'.")
-        connection.close()
-        return
+def add_user(username, password):
+    """Añade un usuario nuevo con la contraseña cifrada (SHA256)."""
+    conn = sqlite3.connect("inventory.db")
+    cursor = conn.cursor()
+    password_hash = hashlib.sha256(password.encode()).hexdigest()
+    try:
+        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password_hash))
+        conn.commit()
+        print(f"Usuario '{username}' añadido correctamente.")
+    except sqlite3.IntegrityError:
+        print("Usuario ya existe")
+    conn.close()
+    
 
-    # Actualizar nombres de productos
+
+
+
+def get_movements_with_product_names():
+    """Devuelve movimientos junto al nombre del producto (usando JOIN)."""
+    conn = sqlite3.connect("inventory.db")
+    cursor = conn.cursor()
     cursor.execute("""
-    UPDATE movements
-    SET product_name = (
-        SELECT name
-        FROM products
-        WHERE products.id = movements.product_id
-    )
-    WHERE product_name IS NULL;
+        SELECT 
+            movements.id, 
+            products.name, 
+            movements.quantity, 
+            movements.type, 
+            movements.movement_type,
+            movements.date
+        FROM movements
+        JOIN products ON movements.product_id = products.id
+        ORDER BY movements.date DESC
     """)
-
-    connection.commit()
-    connection.close()
-    print("Nombres de productos actualizados correctamente.")
-
-# Ejecutar funciones necesarias
-connect()
-migrate()
-update_movements()
-update_product_names()
+    rows = cursor.fetchall()
+    conn.close()
+    return rows

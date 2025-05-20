@@ -1,7 +1,9 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
+import matplotlib.pyplot as plt
 import sqlite3
+from inventory.database import verify_user
 from inventory.inventory_manager import (
     add_product,
     list_products,
@@ -12,17 +14,87 @@ from inventory.inventory_manager import (
     add_supplier,
     list_suppliers,
     delete_supplier,
-    update_supplier
+    update_supplier,
+    get_top_selling_products,
+    InventoryManager
 )
-import matplotlib.pyplot as plt
+class LoginWindow:
+    def __init__(self, root, on_success):
+     self.root = root
+     self.on_success = on_success
+
+     self.window = tk.Toplevel(root)
+     self.window.title("Iniciar sesión")
+     self.window.geometry("350x200")
+     self.window.configure(bg="#f5f5f5")
+     self.window.resizable(False, False)
+     self.center_window(350, 200)
+     self.window.protocol("WM_DELETE_WINDOW", root.destroy)
+
+     # Estilo ttk
+     style = ttk.Style(self.window)
+     style.theme_use('clam')
+     style.configure('TLabel', font=('Segoe UI', 12), background="#f5f5f5")
+     style.configure('TEntry', font=('Segoe UI', 12))
+     style.configure('TButton', font=('Segoe UI', 12), padding=8)
+     style.map('TButton', background=[('active', '#b2dfdb')])
+
+     frame = ttk.Frame(self.window, padding=24, style='Card.TFrame')
+     frame.pack(expand=True, fill='both')
+
+     ttk.Label(frame, text="Usuario:", anchor="w").pack(fill='x', pady=(0, 6))
+     self.username_entry = ttk.Entry(frame)
+     self.username_entry.pack(fill='x', pady=(0, 14))
+
+     ttk.Label(frame, text="Contraseña:", anchor="w").pack(fill='x', pady=(0, 6))
+     self.password_entry = ttk.Entry(frame, show="*")
+     self.password_entry.pack(fill='x', pady=(0, 18))
+
+     self.login_btn = ttk.Button(frame, text="Ingresar", command=self.login)
+     self.login_btn.pack(pady=(6, 0), fill='x')
+
+     # Firma con emoji, centrada y en gris claro
+     firma_label = ttk.Label(
+        frame,
+        text="💡 by Eldeivid2110",
+        font=("Segoe UI", 9, "italic"),
+        anchor="center",
+        foreground="#bdbdbd"
+    )
+     firma_label.pack(pady=(18, 0))
+
+     self.username_entry.focus()
+     self.window.bind('<Return>', lambda event: self.login())
+
+    def center_window(self, width, height):
+        self.window.update_idletasks()
+        screenwidth = self.window.winfo_screenwidth()
+        screenheight = self.window.winfo_screenheight()
+        x = int((screenwidth / 2) - (width / 2))
+        y = int((screenheight / 2) - (height / 2))
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
+
+    def login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        if verify_user(username, password):
+            self.window.destroy()
+            self.on_success(username)
+        else:
+            messagebox.showerror("Error", "Usuario o contraseña incorrectos")
 
 class InventoryApp:
-    def __init__(self, root):
+    def __init__(self, root, usuario):
         self.root = root
+        self.usuario = usuario
         self.root.title("Sistema de Control de Inventarios")
+
+        # Configurar el color de fondo
+        self.root.configure(bg="#00796b")  # Color verde azulado
 
         # Inicializar atributos
         self.low_stock_threshold = 10  # Umbral inicial para notificaciones de bajo stock
+        self.inventory_manager = InventoryManager()  # Instancia del gestor de inventario
 
         # Habilitar pantalla completa
         self.root.attributes("-fullscreen", True)
@@ -32,96 +104,162 @@ class InventoryApp:
 
         # Configurar el tema de ttk
         style = ttk.Style()
-        style.theme_use("clam")  # Usa el tema 'clam' para un aspecto moderno
-        style.configure("TButton", font=("Arial", 16), padding=10)  # Botones más grandes
-        style.configure("TLabel", font=("Arial", 16))  # Etiquetas más grandes
-        style.configure("Header.TLabel", font=("Arial", 24, "bold"))  # Título más grande
+        style.theme_use("clam")
+        style.configure("TButton", font=("Arial", 14), padding=10)
+        style.configure("TLabel", font=("Arial", 16), background="#00796b", foreground="white")
+        style.configure("Header.TLabel", font=("Arial", 24, "bold"), background="#00796b", foreground="white")
 
         # Crear un marco principal para contener el menú
-        self.main_frame = tk.Frame(self.root, bg="#f7f7f7", padx=20, pady=20)
+        self.main_frame = tk.Frame(self.root, bg="#00796b", padx=20, pady=20)
         self.main_frame.pack(fill="both", expand=True)
 
         # Crear el menú principal
         self.create_main_menu()
 
     def create_main_menu(self):
-        """Crea el menú principal con botones para cada operación."""
+        """Crea el menú principal con un diseño dividido en dos columnas."""
         # Limpiar cualquier contenido existente en el marco principal
         for widget in self.main_frame.winfo_children():
             widget.destroy()
 
-        # Título del menú principal
+        # Título en la parte superior
         ttk.Label(
             self.main_frame,
-            text="Sistema de Control de Inventarios",
+            text="SISTEMA DE CONTROL DE INVENTARIOS",
             style="Header.TLabel",
-            anchor="center"
-        ).grid(row=0, column=0, columnspan=2, pady=20)
+            anchor="w"
+        ).grid(row=0, column=0, columnspan=2, pady=20, sticky="w")
 
-        # Mostrar notificaciones de bajo stock
-        self.show_low_stock_notification(self.main_frame)
+        # Columna izquierda: Opciones principales
+        left_frame = tk.Frame(self.main_frame, bg="#00796b")
+        left_frame.grid(row=1, column=0, sticky="nsw", padx=20, pady=20)
 
-        # Lista de acciones con sus comandos correspondientes
-        actions = [
+        actions_left = [
             ("📦 Agregar Producto", self.add_product_window),
             ("🗑️ Eliminar Producto", self.delete_product_window),
             ("📋 Listar Inventario", self.list_inventory_window),
             ("➖ Registrar Salida de Stock", self.register_exit_window),
+        ]
+
+        for text, command in actions_left:
+            ttk.Button(left_frame, text=text, command=command, width=30).pack(pady=10)
+
+        # Columna derecha: Opciones adicionales
+        right_frame = tk.Frame(self.main_frame, bg="#00796b")
+        right_frame.grid(row=1, column=1, sticky="nse", padx=20, pady=20)
+
+        actions_right = [
             ("📜 Historial de Movimientos", self.simple_movements_window),
             ("⚙️ Configurar Umbral Bajo Stock", self.configure_low_stock_threshold),
             ("📊 Reportes y Estadísticas", self.generate_reports_window),
-            ("❌ Salir", self.root.quit)
+            ("📦 Revisar Bajo Stock", self.show_low_stock_notification),
+            ("❌ Salir", self.root.quit),
         ]
 
-        # Mostrar botones en un grid
-        for i, (text, command) in enumerate(actions):
-            ttk.Button(
-                self.main_frame,
-                text=text,
-                command=command,
-                width=30
-            ).grid(row=i + 2, column=0, columnspan=2, pady=10, padx=20)
+        for text, command in actions_right:
+            ttk.Button(right_frame, text=text, command=command, width=30).pack(pady=10)
+            # Firma al pie del menú
+        ttk.Label(
+        self.main_frame,
+        text="Desarrollado por MorettiDavid",
+        style="TLabel",
+        font=("Segoe UI", 10, "italic"),
+        foreground="#bdbdbd",
+        anchor="e"
+    ).grid(row=99, column=0, columnspan=2, pady=(30, 0), sticky="e")
+ 
 
-    def show_low_stock_notification(self, parent_frame):
-        """Show a notification if there are low stock items."""
-        low_stock_products = get_low_stock_products(self.low_stock_threshold)
+    def show_low_stock_notification(self):
+        """Muestra una notificación si hay productos con bajo stock."""
+        # Crear una nueva ventana para mostrar las notificaciones
+        window = tk.Toplevel(self.root)
+        window.title("Alertas de Bajo Stock")
+        window.geometry("400x300")
+        window.configure(bg="#f7f7f7")  # Color de fondo para mantener la consistencia
 
         # Mostrar el umbral actual
         ttk.Label(
-            parent_frame,
+            window,
             text=f"⚙️ Umbral de Bajo Stock: {self.low_stock_threshold}",
             style="TLabel",
             anchor="center"
-        ).grid(row=1, column=0, columnspan=2, pady=10)
+        ).pack(pady=10)
+
+        # Obtener productos con bajo stock desde el gestor de inventario
+        low_stock_products = self.inventory_manager.get_low_stock_products(self.low_stock_threshold)
 
         if low_stock_products:
-            # Mostrar notificación de productos con bajo stock
+            # Mostrar mensaje de productos con bajo stock
             ttk.Label(
-                parent_frame,
+                window,
                 text="⚠️ Productos con bajo stock:",
                 style="TLabel",
                 foreground="red",
                 anchor="center"
-            ).grid(row=2, column=0, columnspan=2, pady=10)
+            ).pack(pady=10)
 
-            # Agregar cada producto con bajo stock
-            for i, product in enumerate(low_stock_products, start=3):
-                product_label = f"- {product[1]} (Stock: {product[2]})"
+            # Listar cada producto con bajo stock
+            for product, quantity in low_stock_products:
+                product_label = f"- {product} (Stock: {quantity})"
                 ttk.Label(
-                    parent_frame,
+                    window,
                     text=product_label,
                     style="TLabel",
                     anchor="w"
-                ).grid(row=i, column=0, columnspan=2, pady=2, sticky="w")
+                ).pack(pady=2)
         else:
-            # Mostrar notificación de que todo está bien
-            ttk.Label(
-                parent_frame,
-                text="✅ Todo el inventario está en buen estado.",
-                style="TLabel",
-                foreground="green",
-                anchor="center"
-            ).grid(row=2, column=0, columnspan=2, pady=10)
+            # Definir un estilo personalizado para el mensaje
+            style = ttk.Style(window)
+            style.configure(
+               "BlackOnGreen.TLabel",
+               foreground="black",
+               background="#00896b",  # verde oscuro, ajusta si usas otro color
+               font=("Segoe UI", 14, "bold")
+)
+            # Mostrar mensaje si no hay productos con bajo stock
+            tk.Label(
+             window,
+             text="✅ Todo el inventario está en buen estado.",
+             font=("Segoe UI", 14, "bold"),
+             bg="#00896b",
+             fg="black",
+             anchor="center"
+             ).pack(fill="x", padx=10, pady=10)
+
+        # Botón para cerrar la ventana
+        ttk.Button(
+            window,
+            text="Cerrar",
+            command=window.destroy
+        ).pack(pady=10)
+
+    def configure_low_stock_threshold(self):
+        """Permitir al usuario configurar el umbral de bajo stock."""
+        def save_threshold():
+            try:
+                new_threshold = int(threshold_entry.get())
+                self.low_stock_threshold = new_threshold
+                messagebox.showinfo("Configuración Guardada", f"El nuevo umbral de bajo stock es {new_threshold}.")
+                config_window.destroy()
+            except ValueError:
+                messagebox.showerror("Error", "Por favor, ingresa un número válido.")
+
+        config_window = tk.Toplevel(self.root)
+        config_window.title("Configurar Umbral de Bajo Stock")
+        config_window.geometry("300x150")
+        config_window.configure(bg="#f7f7f7")
+
+        ttk.Label(
+            config_window,
+            text="Configura el umbral de bajo stock:",
+            style="TLabel"
+        ).pack(pady=10)
+
+        threshold_entry = ttk.Entry(config_window, width=10)
+        threshold_entry.insert(0, str(self.low_stock_threshold))
+        threshold_entry.pack(pady=5)
+
+        ttk.Button(config_window, text="Guardar", command=save_threshold).pack(pady=10)
 
     def add_product_window(self):
         """Ventana para agregar un nuevo producto."""
@@ -587,8 +725,7 @@ class InventoryApp:
 
         ttk.Button(window, text="Productos Más Vendidos", command=show_top_selling_products).pack(pady=10)
         ttk.Button(window, text="Cerrar", command=window.destroy).pack(pady=10)
-
-        
+    
     
 
 
